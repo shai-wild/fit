@@ -12,329 +12,536 @@ function createLimbGeometry(length, radius) {
   return new THREE.CapsuleGeometry(radius, length, 8, 16);
 }
 
-function StickFigure({ animation, progress }) {
-  const group = useRef();
+// Smooth easing for natural-looking motion
+function smoothstep(x) {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
+}
+
+// Sine-based cycle with easing, returns 0→1→0 smoothly
+function easedCycle(time, speed) {
+  const raw = Math.sin(time * speed) * 0.5 + 0.5;
+  return smoothstep(raw);
+}
+
+// Linear interpolation
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function StickFigure({ animation }) {
+  const bodyRef = useRef();
+  const spineRef = useRef();
+  const headRef = useRef();
+  const lShoulderRef = useRef();
+  const rShoulderRef = useRef();
+  const lElbowRef = useRef();
+  const rElbowRef = useRef();
+  const lHipRef = useRef();
+  const rHipRef = useRef();
+  const lKneeRef = useRef();
+  const rKneeRef = useRef();
   const timeRef = useRef(0);
 
   const geo = useMemo(() => ({
     head: new THREE.SphereGeometry(0.22, 16, 16),
     torso: createLimbGeometry(0.6, 0.15),
-    upperArm: createLimbGeometry(0.3, 0.07),
-    forearm: createLimbGeometry(0.28, 0.06),
-    upperLeg: createLimbGeometry(0.35, 0.09),
-    lowerLeg: createLimbGeometry(0.32, 0.07),
+    upperArm: createLimbGeometry(0.28, 0.07),
+    forearm: createLimbGeometry(0.26, 0.06),
+    upperLeg: createLimbGeometry(0.33, 0.09),
+    lowerLeg: createLimbGeometry(0.30, 0.07),
     hand: new THREE.SphereGeometry(0.07, 8, 8),
     foot: new THREE.BoxGeometry(0.12, 0.06, 0.22),
   }), []);
 
   const mat = useMemo(() => ({
     skin: new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.6 }),
-    shirt: new THREE.MeshStandardMaterial({ color: SHIRT, roughness: 0.5 }),
+    shirt: new THREE.MeshStandardMaterial({ color: SHIRT, roughness: 0.5, metalness: 0.1 }),
     shorts: new THREE.MeshStandardMaterial({ color: SHORTS, roughness: 0.5 }),
     shoe: new THREE.MeshStandardMaterial({ color: SHOE, roughness: 0.8 }),
   }), []);
 
   useFrame((_, delta) => {
     timeRef.current += delta;
-    if (!group.current) return;
-
     const t = timeRef.current;
-    const cycle = Math.sin(t * 2.5) * 0.5 + 0.5; // 0 to 1 smooth cycle
 
-    const body = group.current;
-    const [torso, head,
-      lUpperArm, lForearm, lHand,
-      rUpperArm, rForearm, rHand,
-      lUpperLeg, lLowerLeg, lFoot,
-      rUpperLeg, rLowerLeg, rFoot
-    ] = body.children;
+    const body = bodyRef.current;
+    const spine = spineRef.current;
+    const head = headRef.current;
+    const lShoulder = lShoulderRef.current;
+    const rShoulder = rShoulderRef.current;
+    const lElbow = lElbowRef.current;
+    const rElbow = rElbowRef.current;
+    const lHip = lHipRef.current;
+    const rHip = rHipRef.current;
+    const lKnee = lKneeRef.current;
+    const rKnee = rKneeRef.current;
 
-    // Reset transforms
+    if (!body || !spine || !head || !lShoulder || !rShoulder ||
+        !lElbow || !rElbow || !lHip || !rHip || !lKnee || !rKnee) return;
+
+    // Reset all joint rotations each frame
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
-    torso.rotation.set(0, 0, 0);
-    torso.position.set(0, 1.2, 0);
-    head.position.set(0, 1.75, 0);
+    spine.rotation.set(0, 0, 0);
     head.rotation.set(0, 0, 0);
+    lShoulder.rotation.set(0, 0, -0.05);
+    rShoulder.rotation.set(0, 0, 0.05);
+    lElbow.rotation.set(0, 0, 0);
+    rElbow.rotation.set(0, 0, 0);
+    lHip.rotation.set(0, 0, 0);
+    rHip.rotation.set(0, 0, 0);
+    lKnee.rotation.set(0, 0, 0);
+    rKnee.rotation.set(0, 0, 0);
 
-    lUpperArm.position.set(-0.25, 1.5, 0);
-    rUpperArm.position.set(0.25, 1.5, 0);
-    lForearm.position.set(-0.25, 1.1, 0);
-    rForearm.position.set(0.25, 1.1, 0);
-    lHand.position.set(-0.25, 0.8, 0);
-    rHand.position.set(0.25, 0.8, 0);
-
-    lUpperLeg.position.set(-0.12, 0.6, 0);
-    rUpperLeg.position.set(0.12, 0.6, 0);
-    lLowerLeg.position.set(-0.12, 0.2, 0);
-    rLowerLeg.position.set(0.12, 0.2, 0);
-    lFoot.position.set(-0.12, 0.03, 0.04);
-    rFoot.position.set(0.12, 0.03, 0.04);
-
-    // Reset rotations
-    [lUpperArm, lForearm, rUpperArm, rForearm,
-     lUpperLeg, lLowerLeg, rUpperLeg, rLowerLeg].forEach(m => {
-      m.rotation.set(0, 0, 0);
-    });
+    const isHorizontal = ['pushup', 'plank', 'mountainclimber', 'crunch', 'legraise', 'superman'].includes(animation);
 
     switch (animation) {
+
+      // ─── PUSH-UP ───
       case 'pushup': {
-        // Push-up: body horizontal, arms push up and down
-        const dip = Math.sin(t * 3) * 0.5 + 0.5;
-        const bodyY = 0.4 + dip * 0.25;
+        const d = easedCycle(t, 1.4);
 
-        body.rotation.x = -Math.PI / 2 + 0.1;
-        body.position.y = bodyY - 0.5;
-        body.position.z = 0.3;
-
-        // Arms bend
-        lUpperArm.rotation.x = -0.3 + dip * 0.5;
-        rUpperArm.rotation.x = -0.3 + dip * 0.5;
-        lForearm.rotation.x = -dip * 0.8;
-        rForearm.rotation.x = -dip * 0.8;
-        break;
-      }
-
-      case 'squat': {
-        const depth = Math.sin(t * 2.5) * 0.5 + 0.5;
-        const squat = depth * 0.7;
-
-        body.position.y = -squat * 0.5;
-
-        lUpperLeg.rotation.x = -squat * 1.2;
-        rUpperLeg.rotation.x = -squat * 1.2;
-        lLowerLeg.rotation.x = squat * 1.5;
-        rLowerLeg.rotation.x = squat * 1.5;
-
-        // Arms forward for balance
-        lUpperArm.rotation.x = squat * 1.5;
-        rUpperArm.rotation.x = squat * 1.5;
-        lForearm.rotation.x = -squat * 0.3;
-        rForearm.rotation.x = -squat * 0.3;
-
-        torso.rotation.x = -squat * 0.2;
-        break;
-      }
-
-      case 'lunge': {
-        const step = Math.sin(t * 2) * 0.5 + 0.5;
-
-        body.position.y = -step * 0.3;
-
-        lUpperLeg.rotation.x = step * 1.2;
-        lLowerLeg.rotation.x = -step * 1.0;
-        rUpperLeg.rotation.x = -step * 0.8;
-        rLowerLeg.rotation.x = step * 0.5;
-
-        lUpperArm.rotation.x = -step * 0.3;
-        rUpperArm.rotation.x = step * 0.3;
-
-        torso.rotation.x = -step * 0.1;
-        break;
-      }
-
-      case 'plank': {
+        // Body horizontal, face down
         body.rotation.x = -Math.PI / 2 + 0.05;
-        body.position.y = -0.6;
-        body.position.z = 0.3;
+        body.position.z = 0.5;
 
-        // Slight breathing motion
-        const breathe = Math.sin(t * 1.5) * 0.02;
+        // Arms reach down to ground, perpendicular to body
+        lShoulder.rotation.x = Math.PI / 2 - 0.15;
+        rShoulder.rotation.x = Math.PI / 2 - 0.15;
+        lShoulder.rotation.z = -0.2;
+        rShoulder.rotation.z = 0.2;
+
+        // Elbows bend to lower body, straighten to push up
+        lElbow.rotation.x = d * 1.4;
+        rElbow.rotation.x = d * 1.4;
+
+        // Body lowers as elbows bend
+        body.position.y = -0.5 - d * 0.2;
+
+        // Rigid legs
+        lHip.rotation.x = 0.03;
+        rHip.rotation.x = 0.03;
+
+        // Head looks slightly forward
+        head.rotation.x = 0.25;
+        break;
+      }
+
+      // ─── SQUAT ───
+      case 'squat': {
+        const d = easedCycle(t, 1.3);
+
+        // Body lowers into squat
+        body.position.y = -d * 0.48;
+
+        // Hip flexion — thighs rotate forward
+        lHip.rotation.x = -d * 1.5;
+        rHip.rotation.x = -d * 1.5;
+
+        // Knee flexion — shins fold back under thighs
+        lKnee.rotation.x = d * 2.0;
+        rKnee.rotation.x = d * 2.0;
+
+        // Torso leans forward for balance
+        spine.rotation.x = -d * 0.3;
+
+        // Arms reach forward as counterbalance
+        lShoulder.rotation.x = d * 1.5;
+        rShoulder.rotation.x = d * 1.5;
+        lShoulder.rotation.z = -0.05;
+        rShoulder.rotation.z = 0.05;
+        lElbow.rotation.x = -d * 0.3;
+        rElbow.rotation.x = -d * 0.3;
+
+        break;
+      }
+
+      // ─── LUNGE ───
+      case 'lunge': {
+        const d = easedCycle(t, 1.1);
+
+        body.position.y = -d * 0.25;
+
+        // Front leg (left): hip flexed, knee bent, shin near vertical
+        lHip.rotation.x = -d * 0.85;
+        lKnee.rotation.x = d * 1.0;
+
+        // Back leg (right): hip extended, knee drops toward ground
+        rHip.rotation.x = d * 0.5;
+        rKnee.rotation.x = d * 1.0;
+
+        // Upright torso
+        spine.rotation.x = -d * 0.08;
+
+        // Arms relaxed at sides with slight counter-motion
+        lShoulder.rotation.x = d * 0.15;
+        rShoulder.rotation.x = -d * 0.15;
+        lShoulder.rotation.z = -0.15;
+        rShoulder.rotation.z = 0.15;
+        lElbow.rotation.x = -d * 0.6;
+        rElbow.rotation.x = -d * 0.6;
+
+        break;
+      }
+
+      // ─── PLANK ───
+      case 'plank': {
+        body.rotation.x = -Math.PI / 2 + 0.04;
+        body.position.y = -0.52;
+        body.position.z = 0.4;
+
+        // Forearm plank: elbows at 90 degrees, forearms on ground
+        lShoulder.rotation.x = Math.PI / 2 - 0.3;
+        rShoulder.rotation.x = Math.PI / 2 - 0.3;
+        lShoulder.rotation.z = -0.1;
+        rShoulder.rotation.z = 0.1;
+        lElbow.rotation.x = 1.4;
+        rElbow.rotation.x = 1.4;
+
+        // Subtle breathing
+        const breathe = Math.sin(t * 1.5) * 0.012;
         body.position.y += breathe;
 
-        lUpperArm.rotation.x = -0.3;
-        rUpperArm.rotation.x = -0.3;
-        lForearm.rotation.x = -0.5;
-        rForearm.rotation.x = -0.5;
+        head.rotation.x = 0.3;
+        lHip.rotation.x = 0.02;
+        rHip.rotation.x = 0.02;
         break;
       }
 
+      // ─── BURPEE (4-phase) ───
       case 'burpee': {
-        const phase = (t * 1.2) % 4;
+        const phase = (t * 0.85) % 4;
 
         if (phase < 1) {
-          // Standing to squat
-          const p = phase;
-          body.position.y = -p * 0.4;
-          lUpperLeg.rotation.x = -p * 1.2;
-          rUpperLeg.rotation.x = -p * 1.2;
-          lLowerLeg.rotation.x = p * 1.5;
-          rLowerLeg.rotation.x = p * 1.5;
+          // Phase 1: Standing → Deep squat
+          const p = smoothstep(phase);
+          body.position.y = -p * 0.48;
+          lHip.rotation.x = -p * 1.5;
+          rHip.rotation.x = -p * 1.5;
+          lKnee.rotation.x = p * 2.0;
+          rKnee.rotation.x = p * 2.0;
+          spine.rotation.x = -p * 0.3;
+          lShoulder.rotation.x = p * 1.0;
+          rShoulder.rotation.x = p * 1.0;
         } else if (phase < 2) {
-          // Squat to plank
-          const p = phase - 1;
-          body.rotation.x = -p * (Math.PI / 2 - 0.1);
-          body.position.y = -0.4 - p * 0.2;
-          body.position.z = p * 0.3;
+          // Phase 2: Squat → Plank (kick legs back)
+          const p = smoothstep(phase - 1);
+          body.rotation.x = -p * (Math.PI / 2 - 0.05);
+          body.position.y = -0.48 + p * 0.02;
+          body.position.z = p * 0.5;
+
+          const sq = 1 - p;
+          lHip.rotation.x = -sq * 1.5 + p * 0.03;
+          rHip.rotation.x = -sq * 1.5 + p * 0.03;
+          lKnee.rotation.x = sq * 2.0;
+          rKnee.rotation.x = sq * 2.0;
+
+          lShoulder.rotation.x = sq * 1.0 + p * (Math.PI / 2 - 0.15);
+          rShoulder.rotation.x = sq * 1.0 + p * (Math.PI / 2 - 0.15);
+          lShoulder.rotation.z = -p * 0.2;
+          rShoulder.rotation.z = p * 0.2;
+          spine.rotation.x = -sq * 0.3;
+          head.rotation.x = p * 0.25;
         } else if (phase < 3) {
-          // Plank to squat
-          const p = phase - 2;
-          body.rotation.x = -(1 - p) * (Math.PI / 2 - 0.1);
-          body.position.y = -0.6 + p * 0.2;
-          body.position.z = (1 - p) * 0.3;
+          // Phase 3: Plank → Squat (jump feet forward)
+          const p = smoothstep(phase - 2);
+          body.rotation.x = -(1 - p) * (Math.PI / 2 - 0.05);
+          body.position.y = -0.46 - p * 0.02;
+          body.position.z = (1 - p) * 0.5;
+
+          lHip.rotation.x = -p * 1.5;
+          rHip.rotation.x = -p * 1.5;
+          lKnee.rotation.x = p * 2.0;
+          rKnee.rotation.x = p * 2.0;
+          spine.rotation.x = -p * 0.3;
+
+          lShoulder.rotation.x = (1 - p) * (Math.PI / 2 - 0.15) + p * 1.0;
+          rShoulder.rotation.x = (1 - p) * (Math.PI / 2 - 0.15) + p * 1.0;
+          lShoulder.rotation.z = -(1 - p) * 0.2;
+          rShoulder.rotation.z = (1 - p) * 0.2;
+          head.rotation.x = (1 - p) * 0.25;
         } else {
-          // Jump up
+          // Phase 4: Explosive jump up
           const p = phase - 3;
-          const jump = Math.sin(p * Math.PI) * 0.5;
-          body.position.y = jump;
-          lUpperArm.rotation.z = -p * 2;
-          rUpperArm.rotation.z = p * 2;
+          const jumpArc = Math.sin(p * Math.PI);
+          body.position.y = jumpArc * 0.5;
+
+          // Arms sweep overhead
+          lShoulder.rotation.x = jumpArc * 2.8;
+          rShoulder.rotation.x = jumpArc * 2.8;
+          lShoulder.rotation.z = -jumpArc * 0.3;
+          rShoulder.rotation.z = jumpArc * 0.3;
+
+          // Slight leg tuck at peak
+          lHip.rotation.x = -jumpArc * 0.3;
+          rHip.rotation.x = -jumpArc * 0.3;
+          lKnee.rotation.x = jumpArc * 0.4;
+          rKnee.rotation.x = jumpArc * 0.4;
+
+          // Landing absorption
+          if (p > 0.85) {
+            const land = (p - 0.85) / 0.15;
+            lHip.rotation.x = -land * 0.4;
+            rHip.rotation.x = -land * 0.4;
+            lKnee.rotation.x = land * 0.6;
+            rKnee.rotation.x = land * 0.6;
+          }
         }
         break;
       }
 
+      // ─── JUMPING JACK ───
       case 'jumpingjack': {
-        const spread = Math.sin(t * 4) * 0.5 + 0.5;
+        const d = easedCycle(t, 3.0);
+        const bounce = Math.abs(Math.sin(t * 3.0)) * 0.08;
 
-        body.position.y = Math.abs(Math.sin(t * 4)) * 0.1;
+        body.position.y = bounce;
 
-        lUpperArm.rotation.z = -spread * 2.5;
-        rUpperArm.rotation.z = spread * 2.5;
-        lForearm.rotation.z = -spread * 0.3;
-        rForearm.rotation.z = spread * 0.3;
+        // Arms sweep from sides to overhead in a wide arc
+        lShoulder.rotation.z = -0.05 - d * 2.9;
+        rShoulder.rotation.z = 0.05 + d * 2.9;
+        lShoulder.rotation.x = d * 0.15;
+        rShoulder.rotation.x = d * 0.15;
+        lElbow.rotation.x = -d * 0.1;
+        rElbow.rotation.x = -d * 0.1;
 
-        lUpperLeg.rotation.z = -spread * 0.4;
-        rUpperLeg.rotation.z = spread * 0.4;
+        // Legs spread apart
+        lHip.rotation.z = -d * 0.45;
+        rHip.rotation.z = d * 0.45;
         break;
       }
 
+      // ─── MOUNTAIN CLIMBER ───
       case 'mountainclimber': {
-        body.rotation.x = -Math.PI / 2 + 0.15;
+        body.rotation.x = -Math.PI / 2 + 0.1;
         body.position.y = -0.5;
-        body.position.z = 0.3;
+        body.position.z = 0.45;
 
-        const legSwitch = Math.sin(t * 5);
-        lUpperLeg.rotation.x = legSwitch > 0 ? legSwitch * 1.5 : 0;
-        rUpperLeg.rotation.x = legSwitch < 0 ? -legSwitch * 1.5 : 0;
-        lLowerLeg.rotation.x = legSwitch > 0 ? -legSwitch * 0.5 : 0;
-        rLowerLeg.rotation.x = legSwitch < 0 ? legSwitch * 0.5 : 0;
+        // Fast alternating knee drives
+        const leftDrive = Math.max(0, Math.sin(t * 5.0));
+        const rightDrive = Math.max(0, Math.sin(t * 5.0 + Math.PI));
+
+        // Straight arm plank base
+        lShoulder.rotation.x = Math.PI / 2 - 0.15;
+        rShoulder.rotation.x = Math.PI / 2 - 0.15;
+        lShoulder.rotation.z = -0.15;
+        rShoulder.rotation.z = 0.15;
+
+        // Explosive knee drives toward chest
+        lHip.rotation.x = leftDrive * 1.8;
+        lKnee.rotation.x = -leftDrive * 1.0;
+        rHip.rotation.x = rightDrive * 1.8;
+        rKnee.rotation.x = -rightDrive * 1.0;
+
+        head.rotation.x = 0.2;
         break;
       }
 
+      // ─── CRUNCH ───
       case 'crunch': {
         // Lying on back
         body.rotation.x = Math.PI / 2;
-        body.position.y = -0.8;
+        body.position.y = -0.85;
         body.position.z = -0.3;
 
-        const crunchUp = Math.sin(t * 2.5) * 0.5 + 0.5;
-        torso.rotation.x = crunchUp * 0.6;
-        head.rotation.x = crunchUp * 0.3;
+        const d = easedCycle(t, 1.4);
 
-        lUpperArm.rotation.x = 0.5;
-        rUpperArm.rotation.x = 0.5;
+        // Spinal curl upward
+        spine.rotation.x = d * 0.65;
+        head.rotation.x = d * 0.2;
 
-        lUpperLeg.rotation.x = 1.0;
-        rUpperLeg.rotation.x = 1.0;
-        lLowerLeg.rotation.x = -1.2;
-        rLowerLeg.rotation.x = -1.2;
+        // Hands behind head, elbows wide
+        lShoulder.rotation.x = -0.6;
+        rShoulder.rotation.x = -0.6;
+        lShoulder.rotation.z = -0.7;
+        rShoulder.rotation.z = 0.7;
+        lElbow.rotation.x = -1.6;
+        rElbow.rotation.x = -1.6;
+
+        // Knees bent, feet flat on ground
+        lHip.rotation.x = 0.9;
+        rHip.rotation.x = 0.9;
+        lKnee.rotation.x = -1.4;
+        rKnee.rotation.x = -1.4;
         break;
       }
 
+      // ─── LEG RAISE ───
       case 'legraise': {
         body.rotation.x = Math.PI / 2;
-        body.position.y = -0.8;
+        body.position.y = -0.85;
         body.position.z = -0.3;
 
-        const raise = Math.sin(t * 2) * 0.5 + 0.5;
-        lUpperLeg.rotation.x = raise * 1.5;
-        rUpperLeg.rotation.x = raise * 1.5;
+        const d = easedCycle(t, 1.2);
+
+        // Both legs raise together, straight
+        lHip.rotation.x = d * 1.5;
+        rHip.rotation.x = d * 1.5;
+        lKnee.rotation.x = -d * 0.08;
+        rKnee.rotation.x = -d * 0.08;
+
+        // Arms flat by sides for stability
+        lShoulder.rotation.z = -0.2;
+        rShoulder.rotation.z = 0.2;
         break;
       }
 
+      // ─── HIGH KNEES ───
       case 'highknees': {
-        const leftUp = Math.max(0, Math.sin(t * 6));
-        const rightUp = Math.max(0, Math.sin(t * 6 + Math.PI));
+        const leftUp = Math.max(0, Math.sin(t * 5.5));
+        const rightUp = Math.max(0, Math.sin(t * 5.5 + Math.PI));
+        const bounce = (leftUp + rightUp) * 0.04;
 
-        body.position.y = (leftUp + rightUp) * 0.05;
+        body.position.y = bounce;
 
-        lUpperLeg.rotation.x = leftUp * 1.5;
-        lLowerLeg.rotation.x = -leftUp * 1.2;
-        rUpperLeg.rotation.x = rightUp * 1.5;
-        rLowerLeg.rotation.x = -rightUp * 1.2;
+        // Alternating high knee drives
+        lHip.rotation.x = -leftUp * 1.6;
+        lKnee.rotation.x = leftUp * 1.9;
+        rHip.rotation.x = -rightUp * 1.6;
+        rKnee.rotation.x = rightUp * 1.9;
 
-        lUpperArm.rotation.x = rightUp * 1.0;
-        rUpperArm.rotation.x = leftUp * 1.0;
+        // Opposite arm pumping like running
+        rShoulder.rotation.x = leftUp * 1.2;
+        rElbow.rotation.x = -leftUp * 1.3;
+        lShoulder.rotation.x = rightUp * 1.2;
+        lElbow.rotation.x = -rightUp * 1.3;
+
+        // Slight forward lean
+        spine.rotation.x = -0.06;
         break;
       }
 
+      // ─── TRICEP DIP ───
       case 'dip': {
-        const dipDown = Math.sin(t * 2.5) * 0.5 + 0.5;
+        const d = easedCycle(t, 1.3);
 
-        body.position.y = -dipDown * 0.3;
+        // Body lowers between hands
+        body.position.y = -d * 0.35;
 
-        lUpperArm.rotation.z = -0.5;
-        rUpperArm.rotation.z = 0.5;
-        lForearm.rotation.x = -dipDown * 1.2;
-        rForearm.rotation.x = -dipDown * 1.2;
+        // Arms behind/beside body (on a bench)
+        lShoulder.rotation.x = -0.4;
+        rShoulder.rotation.x = -0.4;
+        lShoulder.rotation.z = -0.3;
+        rShoulder.rotation.z = 0.3;
 
-        lUpperLeg.rotation.x = 0.3;
-        rUpperLeg.rotation.x = 0.3;
+        // Elbows bend as body lowers
+        lElbow.rotation.x = d * 1.5;
+        rElbow.rotation.x = d * 1.5;
+
+        // Legs extended forward
+        lHip.rotation.x = -0.5;
+        rHip.rotation.x = -0.5;
+        lKnee.rotation.x = 0.5;
+        rKnee.rotation.x = 0.5;
+
+        // Slight lean back
+        spine.rotation.x = d * 0.1;
         break;
       }
 
+      // ─── SUPERMAN ───
       case 'superman': {
         body.rotation.x = Math.PI / 2;
-        body.position.y = -0.8;
+        body.position.y = -0.85;
         body.position.z = -0.3;
 
-        const lift = Math.sin(t * 2) * 0.5 + 0.5;
-        lUpperArm.rotation.x = Math.PI - lift * 0.3;
-        rUpperArm.rotation.x = Math.PI - lift * 0.3;
-        lUpperLeg.rotation.x = -lift * 0.4;
-        rUpperLeg.rotation.x = -lift * 0.4;
-        head.rotation.x = -lift * 0.3;
+        const d = easedCycle(t, 1.2);
+
+        // Arms extend forward (overhead when face-down)
+        lShoulder.rotation.x = Math.PI - 0.3 + d * 0.4;
+        rShoulder.rotation.x = Math.PI - 0.3 + d * 0.4;
+
+        // Spine arches — upper body lifts
+        spine.rotation.x = -d * 0.35;
+        head.rotation.x = -d * 0.3;
+
+        // Legs lift behind
+        lHip.rotation.x = -d * 0.5;
+        rHip.rotation.x = -d * 0.5;
         break;
       }
 
+      // ─── CALF RAISE ───
       case 'calfraise': {
-        const raise = Math.sin(t * 3) * 0.5 + 0.5;
-        body.position.y = raise * 0.15;
+        const d = easedCycle(t, 1.5);
 
-        lFoot.rotation.x = -raise * 0.5;
-        rFoot.rotation.x = -raise * 0.5;
+        // Rise up on toes
+        body.position.y = d * 0.18;
+
+        // Arms slightly out for balance
+        lShoulder.rotation.z = -0.15;
+        rShoulder.rotation.z = 0.15;
+        lShoulder.rotation.x = d * 0.1;
+        rShoulder.rotation.x = d * 0.1;
         break;
       }
 
+      // ─── IDLE ───
       default: {
-        // Idle breathing
-        const breathe = Math.sin(t * 1.5) * 0.02;
+        const breathe = Math.sin(t * 1.5) * 0.01;
         body.position.y = breathe;
-        lUpperArm.rotation.z = Math.sin(t * 0.8) * 0.05 - 0.05;
-        rUpperArm.rotation.z = -Math.sin(t * 0.8) * 0.05 + 0.05;
+        lShoulder.rotation.z = -0.08 + Math.sin(t * 0.8) * 0.03;
+        rShoulder.rotation.z = 0.08 - Math.sin(t * 0.8) * 0.03;
       }
     }
 
-    // Gentle rotation for better 3D effect
-    body.rotation.y = Math.sin(t * 0.3) * 0.1;
+    // Gentle rotation for 3D depth perception
+    if (isHorizontal) {
+      body.rotation.y = 0.4 + Math.sin(t * 0.25) * 0.12;
+    } else {
+      body.rotation.y = Math.sin(t * 0.3) * 0.18;
+    }
   });
 
   return (
-    <group ref={group} position={[0, 0, 0]}>
-      {/* Torso */}
-      <mesh geometry={geo.torso} material={mat.shirt} />
-      {/* Head */}
-      <mesh geometry={geo.head} material={mat.skin} />
+    <group ref={bodyRef}>
+      {/* ── Spine: upper body pivot at pelvis level ── */}
+      <group ref={spineRef} position={[0, 0.88, 0]}>
+        {/* Torso */}
+        <mesh geometry={geo.torso} material={mat.shirt} position={[0, 0.33, 0]} />
 
-      {/* Left arm */}
-      <mesh geometry={geo.upperArm} material={mat.shirt} />
-      <mesh geometry={geo.forearm} material={mat.skin} />
-      <mesh geometry={geo.hand} material={mat.skin} />
+        {/* Head */}
+        <group ref={headRef} position={[0, 0.87, 0]}>
+          <mesh geometry={geo.head} material={mat.skin} />
+        </group>
 
-      {/* Right arm */}
-      <mesh geometry={geo.upperArm} material={mat.shirt} />
-      <mesh geometry={geo.forearm} material={mat.skin} />
-      <mesh geometry={geo.hand} material={mat.skin} />
+        {/* ── Left Arm ── */}
+        <group ref={lShoulderRef} position={[-0.23, 0.62, 0]}>
+          <mesh geometry={geo.upperArm} material={mat.shirt} position={[0, -0.2, 0]} />
+          <group ref={lElbowRef} position={[0, -0.4, 0]}>
+            <mesh geometry={geo.forearm} material={mat.skin} position={[0, -0.18, 0]} />
+            <mesh geometry={geo.hand} material={mat.skin} position={[0, -0.36, 0]} />
+          </group>
+        </group>
 
-      {/* Left leg */}
-      <mesh geometry={geo.upperLeg} material={mat.shorts} />
-      <mesh geometry={geo.lowerLeg} material={mat.skin} />
-      <mesh geometry={geo.foot} material={mat.shoe} />
+        {/* ── Right Arm ── */}
+        <group ref={rShoulderRef} position={[0.23, 0.62, 0]}>
+          <mesh geometry={geo.upperArm} material={mat.shirt} position={[0, -0.2, 0]} />
+          <group ref={rElbowRef} position={[0, -0.4, 0]}>
+            <mesh geometry={geo.forearm} material={mat.skin} position={[0, -0.18, 0]} />
+            <mesh geometry={geo.hand} material={mat.skin} position={[0, -0.36, 0]} />
+          </group>
+        </group>
+      </group>
 
-      {/* Right leg */}
-      <mesh geometry={geo.upperLeg} material={mat.shorts} />
-      <mesh geometry={geo.lowerLeg} material={mat.skin} />
-      <mesh geometry={geo.foot} material={mat.shoe} />
+      {/* ── Left Leg ── */}
+      <group ref={lHipRef} position={[-0.11, 0.88, 0]}>
+        <mesh geometry={geo.upperLeg} material={mat.shorts} position={[0, -0.22, 0]} />
+        <group ref={lKneeRef} position={[0, -0.44, 0]}>
+          <mesh geometry={geo.lowerLeg} material={mat.skin} position={[0, -0.2, 0]} />
+          <mesh geometry={geo.foot} material={mat.shoe} position={[0, -0.4, 0.04]} />
+        </group>
+      </group>
+
+      {/* ── Right Leg ── */}
+      <group ref={rHipRef} position={[0.11, 0.88, 0]}>
+        <mesh geometry={geo.upperLeg} material={mat.shorts} position={[0, -0.22, 0]} />
+        <group ref={rKneeRef} position={[0, -0.44, 0]}>
+          <mesh geometry={geo.lowerLeg} material={mat.skin} position={[0, -0.2, 0]} />
+          <mesh geometry={geo.foot} material={mat.shoe} position={[0, -0.4, 0.04]} />
+        </group>
+      </group>
     </group>
   );
 }
