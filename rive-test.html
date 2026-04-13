@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rive Test Page</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: 'Inter', system-ui, sans-serif;
+        background: #0f0f0f;
+        color: #e0e0e0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+        padding: 24px;
+      }
+      h1 {
+        font-size: 24px;
+        font-weight: 600;
+        margin-bottom: 16px;
+        color: #fff;
+      }
+      #rive-canvas {
+        width: 500px;
+        height: 500px;
+        max-width: 100%;
+        background: #1a1a1a;
+        border-radius: 12px;
+        border: 1px solid #333;
+      }
+      #status {
+        margin-top: 16px;
+        padding: 12px 20px;
+        background: #1a1a1a;
+        border-radius: 8px;
+        border: 1px solid #333;
+        font-size: 14px;
+        font-family: monospace;
+        white-space: pre-wrap;
+        max-width: 500px;
+        width: 100%;
+        min-height: 80px;
+      }
+      #properties {
+        margin-top: 12px;
+        padding: 12px 20px;
+        background: #1a1a2a;
+        border-radius: 8px;
+        border: 1px solid #334;
+        font-size: 13px;
+        font-family: monospace;
+        white-space: pre-wrap;
+        max-width: 500px;
+        width: 100%;
+        min-height: 60px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Rive Test Page</h1>
+    <canvas id="rive-canvas" width="1000" height="1000"></canvas>
+    <div id="status">Loading...</div>
+    <div id="properties"></div>
+    <label for="file-input" style="margin-top: 12px; cursor: pointer; padding: 8px 16px; background: #2a2a3a; border-radius: 6px; border: 1px solid #444; font-size: 13px;">
+      Choose .riv file
+    </label>
+    <input type="file" id="file-input" accept=".riv" style="display: none;" />
+    <script type="module" src="/src/rive-test.js"></script>
+  </body>
+</html>
